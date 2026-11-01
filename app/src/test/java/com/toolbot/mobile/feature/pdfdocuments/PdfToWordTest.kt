@@ -89,10 +89,49 @@ class PdfToWordTest {
 
             // Validate zip package and XML well-formedness
             validateDocxPackage(tempDocx)
+
+            ZipFile(tempDocx).use { zip ->
+                val documentXml = zip.getInputStream(zip.getEntry("word/document.xml"))
+                    .bufferedReader().use { it.readText() }
+                val stylesXml = zip.getInputStream(zip.getEntry("word/styles.xml"))
+                    .bufferedReader().use { it.readText() }
+                val settingsXml = zip.getInputStream(zip.getEntry("word/settings.xml"))
+                    .bufferedReader().use { it.readText() }
+                val fontTableXml = zip.getInputStream(zip.getEntry("word/fontTable.xml"))
+                    .bufferedReader().use { it.readText() }
+
+                assertTrue(documentXml.contains("pic:nvPicPr"))
+                assertFalse(documentXml.contains("pic:nvPr"))
+                assertTrue(stylesXml.contains("w:eastAsia"))
+                assertFalse(stylesXml.contains("w:fareast"))
+                assertTrue(settingsXml.contains("w:percent="))
+                assertFalse(settingsXml.contains("w:pct="))
+                assertFalse(fontTableXml.contains("<w:sig"))
+            }
         } finally {
             tempDocx.delete()
             dummyImg.delete()
         }
+    }
+
+    @Test
+    fun pageDimensionsAreScaledToWordMaximum() {
+        val xml = buildExactLayoutDocumentXml(
+            listOf(
+                ExactPageData(
+                    imageFile = File("unused.jpg"),
+                    widthPt = 3168f,
+                    heightPt = 1584f,
+                    widthTwips = 63360,
+                    heightTwips = 31680,
+                    cxEmu = 40_000_000L,
+                    cyEmu = 20_000_000L
+                )
+            )
+        )
+
+        assertTrue(xml.contains("<w:pgSz w:w=\"31680\" w:h=\"15840\"/>"))
+        assertTrue(xml.contains("<wp:extent cx=\"20000000\" cy=\"10000000\"/>"))
     }
 
     @Test
@@ -177,4 +216,3 @@ class PdfToWordTest {
         assertEquals(android.content.Context::class.java, convertMethod.parameterTypes[2])
     }
 }
-

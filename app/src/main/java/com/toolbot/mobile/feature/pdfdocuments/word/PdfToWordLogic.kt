@@ -14,6 +14,7 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 data class ExactPageData(
     val imageFile: File,
@@ -129,7 +130,7 @@ fun writeExactLayoutDocxDocument(outputStream: OutputStream, pages: List<ExactPa
         <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
         <w:sz w:val="22"/>
         <w:szCs w:val="22"/>
-        <w:lang w:val="en-US" w:fareast="en-US" w:bidi="ar-SA"/>
+        <w:lang w:val="en-US" w:eastAsia="en-US" w:bidi="ar-SA"/>
       </w:rPr>
     </w:rPrDefault>
     <w:pPrDefault>
@@ -144,7 +145,7 @@ fun writeExactLayoutDocxDocument(outputStream: OutputStream, pages: List<ExactPa
 
     val settingsXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:zoom w:pct="100"/>
+  <w:zoom w:percent="100"/>
 </w:settings>"""
 
     val fontTableXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -154,7 +155,6 @@ fun writeExactLayoutDocxDocument(outputStream: OutputStream, pages: List<ExactPa
     <w:charset w:val="00"/>
     <w:family w:val="swiss"/>
     <w:pitch w:val="variable"/>
-    <w:sig w:val="E0002AFF"/>
   </w:font>
 </w:fonts>"""
 
@@ -270,11 +270,26 @@ fun writeExactLayoutDocxDocument(outputStream: OutputStream, pages: List<ExactPa
 
 fun buildExactLayoutDocumentXml(pages: List<ExactPageData>): String {
     val bodyXmlBuilder = StringBuilder()
+    val wordMaxPageSizeTwips = 31_680
+    val xmlPages = pages.map { page ->
+        val largestDimensionTwips = maxOf(page.widthTwips, page.heightTwips)
+        if (largestDimensionTwips <= wordMaxPageSizeTwips) {
+            page
+        } else {
+            val scale = wordMaxPageSizeTwips.toDouble() / largestDimensionTwips
+            page.copy(
+                widthTwips = (page.widthTwips * scale).roundToInt().coerceAtLeast(1),
+                heightTwips = (page.heightTwips * scale).roundToInt().coerceAtLeast(1),
+                cxEmu = (page.cxEmu * scale).roundToLong().coerceAtLeast(1L),
+                cyEmu = (page.cyEmu * scale).roundToLong().coerceAtLeast(1L),
+            )
+        }
+    }
 
     if (pages.isEmpty()) {
         bodyXmlBuilder.append("<w:p><w:r><w:t xml:space=\"preserve\">No pages found in document.</w:t></w:r></w:p>")
     } else {
-        for ((index, page) in pages.withIndex()) {
+        for ((index, page) in xmlPages.withIndex()) {
             val relId = "rId${index + 4}"
             val pageNum = index + 1
 
@@ -299,10 +314,10 @@ fun buildExactLayoutDocumentXml(pages: List<ExactPageData>): String {
                         <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
                           <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
                             <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
-                              <pic:nvPr>
+                              <pic:nvPicPr>
                                 <pic:cNvPr id="$pageNum" name="exact_page_$pageNum.jpg"/>
                                 <pic:cNvPicPr/>
-                              </pic:nvPr>
+                              </pic:nvPicPr>
                               <pic:blipFill>
                                 <a:blip r:embed="$relId"/>
                                 <a:stretch><a:fillRect/></a:stretch>
@@ -325,7 +340,7 @@ fun buildExactLayoutDocumentXml(pages: List<ExactPageData>): String {
         }
     }
 
-    val lastPage = pages.lastOrNull()
+    val lastPage = xmlPages.lastOrNull()
     val finalW = lastPage?.widthTwips ?: 12240
     val finalH = lastPage?.heightTwips ?: 15840
 
@@ -389,4 +404,3 @@ fun validateDocxPackage(file: File) {
         throw IOException("Generated DOCX package is missing required entries: $missing")
     }
 }
-
